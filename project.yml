@@ -1,0 +1,121 @@
+name: Film
+options:
+  bundleIdPrefix: app
+  deploymentTarget:
+    iOS: "26.0"
+  createIntermediateGroups: true
+packages:
+  LightCode:
+    path: Packages/LightCode
+  FilmSync:
+    path: Packages/FilmSync
+  YouTubeKit:
+    url: https://github.com/alexeichhorn/YouTubeKit.git
+    from: 0.4.9
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    CODE_SIGN_STYLE: Automatic
+targets:
+  Film:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - "AppIcon.icon/**"
+          - "**/.impeccable/**"
+      - path: App/AppIcon.icon
+        type: file
+        buildPhase: resources
+    dependencies:
+      - package: YouTubeKit
+      - package: LightCode
+      - package: FilmSync
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.film
+        DEVELOPMENT_TEAM: ""
+        PRODUCT_NAME: Film
+        # Auch beim Ausführen aus Xcode optimiert übersetzen: Geschmacksmodell und Abgleich laufen sonst 10- bis 30-mal langsamer.
+        SWIFT_OPTIMIZATION_LEVEL: -O
+        INFOPLIST_FILE: LocalNetworkInfo.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Film
+        INFOPLIST_KEY_NSCameraUsageDescription: "Scanne den Code auf deinem Apple TV, um die Anmeldung zu bestätigen."
+        INFOPLIST_KEY_NSFaceIDUsageDescription: "Mit Face ID bestätigst du den Demo-Kauf, wie bei Apple Pay."
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        GENERATE_INFOPLIST_FILE: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        TARGETED_DEVICE_FAMILY: "1,2"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        DEVELOPMENT_LANGUAGE: de
+
+  FilmTV:
+    type: application
+    platform: tvOS
+    deploymentTarget: "26.0"
+    sources:
+      - path: TV
+        excludes: ["Tests/**"]
+      - path: App/Model
+      - path: App/Engine
+      - path: App/Pairing
+      - path: App/Sync
+      - path: App/Resources
+        buildPhase: resources
+    dependencies:
+      - package: YouTubeKit
+      - package: LightCode
+      - package: FilmSync
+    scheme: {}
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.film
+        DEVELOPMENT_TEAM: ""
+        PRODUCT_NAME: FilmTV
+        # Auch beim Ausführen aus Xcode optimiert übersetzen: Geschmacksmodell und Abgleich laufen sonst 10- bis 30-mal langsamer.
+        SWIFT_OPTIMIZATION_LEVEL: -O
+        INFOPLIST_FILE: LocalNetworkInfo.plist
+        INFOPLIST_KEY_CFBundleDisplayName: Film
+        INFOPLIST_KEY_UIUserInterfaceStyle: Dark
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        GENERATE_INFOPLIST_FILE: YES
+        TARGETED_DEVICE_FAMILY: "3"
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        DEVELOPMENT_LANGUAGE: de
+
+  FilmStateTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [Tests/AppState]
+    dependencies:
+      - target: Film
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        PRODUCT_BUNDLE_IDENTIFIER: app.film.tests
+        GENERATE_INFOPLIST_FILE: YES
+    scheme:
+      testTargets: [FilmStateTests]
+
+  FilmUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources: [Tests/UI]
+    dependencies:
+      - target: Film
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.film.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+    scheme:
+      testTargets: [FilmUITests]

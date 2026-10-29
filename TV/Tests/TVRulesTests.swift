@@ -1,0 +1,45 @@
+import Foundation
+
+@main struct TVRulesTests {
+    static func main() {
+        let a = UUID(), b = UUID(), paused = UUID()
+        assert(TVViewerSelection.normalized([a, paused, b, a], available: [a,b], allowsTogether: true) == [a,b])
+        assert(TVViewerSelection.normalized([a,b], available: [a,b], allowsTogether: false) == [a])
+        assert(TVViewerSelection.normalized([paused], available: [a,b], allowsTogether: true).isEmpty)
+        assert(!TVPlaybackPolicy.canStart(subscriptionActive: true, viewersAllow: [], comingSoon: false))
+        assert(!TVPlaybackPolicy.canStart(subscriptionActive: true, viewersAllow: [true,false], comingSoon: false))
+        assert(!TVPlaybackPolicy.canStart(subscriptionActive: false, viewersAllow: [true], comingSoon: false))
+        assert(!TVPlaybackPolicy.canStart(subscriptionActive: true, viewersAllow: [true], comingSoon: true))
+        assert(TVPlaybackPolicy.canStart(subscriptionActive: true, viewersAllow: [true,true], comingSoon: false))
+        assert(!TVContentPolicy.isVisible(viewersAllow: []))
+        assert(!TVContentPolicy.isVisible(viewersAllow: [true, false]))
+        assert(TVContentPolicy.isVisible(viewersAllow: [true, true]))
+        assert(TVRatingPolicy.participants(pending: [a,b], active: [a], viewersAllow: [true]) == [a])
+        assert(TVRatingPolicy.participants(pending: [a,b], active: [a,b], viewersAllow: [true,false]).isEmpty)
+        assert(TVRatingPolicy.participants(pending: [b], active: [a], viewersAllow: [true]).isEmpty)
+        assert(TVRatingPolicy.participants(pending: [a], active: [], viewersAllow: []).isEmpty)
+        var completion = TVPlaybackCompletion()
+        assert(!completion.shouldRecord(sourceLoaded: false, ended: true, explicitlyCompleted: false))
+        assert(!completion.shouldRecord(sourceLoaded: true, ended: false, explicitlyCompleted: false))
+        assert(completion.shouldRecord(sourceLoaded: true, ended: true, explicitlyCompleted: false))
+        assert(!completion.shouldRecord(sourceLoaded: true, ended: true, explicitlyCompleted: true))
+        assert(TVFilmPanPolicy.action(x: 69, y: 0) == nil)
+        assert(TVFilmPanPolicy.action(x: 0, y: 0) == nil)
+        assert(TVFilmPanPolicy.action(x: -70, y: 12) == .left)
+        assert(TVFilmPanPolicy.action(x: 100, y: -40) == .right)
+        assert(TVFilmPanPolicy.action(x: 20, y: -90) == .up)
+        assert(TVFilmPanPolicy.action(x: -30, y: 100) == .down)
+        var deck = TVPreparedDeck<TestFilm>()
+        deck.replace([TestFilm(id: "a"), TestFilm(id: "b"), TestFilm(id: "c")])
+        assert(deck.advance()?.id == "a" && deck.items.first?.id == "b")
+        assert(deck.advance()?.id == "b" && deck.undo() && deck.items.first?.id == "b")
+        assert(deck.undo() && deck.items.map(\.id) == ["a", "b", "c"])
+        deck.append([TestFilm(id: "c"), TestFilm(id: "d")])
+        assert(deck.items.map(\.id) == ["a", "b", "c", "d"])
+        deck.replace([TestFilm(id: "z")])
+        assert(!deck.undo() && deck.items.first?.id == "z")
+        print("TV rules: 30 assertions passed")
+    }
+}
+
+private struct TestFilm: Identifiable { let id: String }

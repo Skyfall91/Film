@@ -1,0 +1,9 @@
+.build/
+xcuserdata/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+.DS_Store
+build/
+.impeccable/
+shot.sh
+
+.build-*.log

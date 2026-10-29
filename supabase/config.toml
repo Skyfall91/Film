@@ -1,0 +1,4 @@
+[functions.film-device]
+# Opaque TV tokens are deliberately not Supabase JWTs. Every protected route
+# validates its own user JWT via Auth.getUser or its hashed device token RPC.
+verify_jwt = false
