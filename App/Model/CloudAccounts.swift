@@ -138,13 +138,18 @@ private enum Keychain {
     private static let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
                                                kSecAttrService as String: "Film.Supabase"]
 
+    /// Frühere Versionen speicherten die Sitzung unter diesem Namen. Einmal übernehmen, sonst wäre man abgemeldet.
+    private static let legacyQuery: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                                     kSecAttrService as String: "FilmPrototyp.Supabase"]
+
     static var session: CloudAccounts.Session? {
         get {
-            var q = query
-            q[kSecReturnData as String] = true
-            var item: CFTypeRef?
-            guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }
-            return try? JSONDecoder().decode(CloudAccounts.Session.self, from: data)
+            if let data = read(query) { return try? JSONDecoder().decode(CloudAccounts.Session.self, from: data) }
+            guard let data = read(legacyQuery),
+                  let session = try? JSONDecoder().decode(CloudAccounts.Session.self, from: data) else { return nil }
+            Self.session = session
+            SecItemDelete(legacyQuery as CFDictionary)
+            return session
         }
         set {
             SecItemDelete(query as CFDictionary)
@@ -154,5 +159,13 @@ private enum Keychain {
             q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
             SecItemAdd(q as CFDictionary, nil)
         }
+    }
+
+    private static func read(_ query: [String: Any]) -> Data? {
+        var q = query
+        q[kSecReturnData as String] = true
+        var item: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess else { return nil }
+        return item as? Data
     }
 }

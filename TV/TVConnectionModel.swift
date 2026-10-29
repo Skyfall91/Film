@@ -18,7 +18,17 @@ nonisolated struct TVCredential: Codable, Sendable {
 @MainActor
 enum TVSessionStore {
     private static let service = "app.film.tv-session"
+    /// Frühere Versionen speicherten die Anmeldung unter diesem Namen. Einmal übernehmen, sonst wäre das TV abgemeldet.
+    private static let legacyService = "de.beispiel.filmprototyp.tv-session"
     static func load() -> TVCredential? {
+        if let credential = load(from: service) { return credential }
+        guard let credential = load(from: legacyService) else { return nil }
+        if (try? save(credential)) != nil {
+            SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: legacyService, kSecAttrAccount as String: "device"] as CFDictionary)
+        }
+        return credential
+    }
+    private static func load(from service: String) -> TVCredential? {
         let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: "device", kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne]
         var item: CFTypeRef?
         guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess, let data = item as? Data else { return nil }
