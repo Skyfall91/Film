@@ -578,18 +578,22 @@ struct RecommendationCard: View {
 
     static let titleFont = Theme.recommendationTitle(size: 36)
     /// Setzt ohne Kante ein und läuft ohne Knick ins Schwarz: viele Stufen auf einer weichen Kurve.
-    static let shade = LinearGradient(stops: [.init(color: .black.opacity(0), location: 0),
-                                              .init(color: .black.opacity(0.012), location: 0.1),
-                                              .init(color: .black.opacity(0.045), location: 0.2),
-                                              .init(color: .black.opacity(0.1), location: 0.3),
-                                              .init(color: .black.opacity(0.18), location: 0.4),
-                                              .init(color: .black.opacity(0.29), location: 0.5),
-                                              .init(color: .black.opacity(0.43), location: 0.6),
-                                              .init(color: .black.opacity(0.6), location: 0.7),
-                                              .init(color: .black.opacity(0.78), location: 0.8),
-                                              .init(color: .black.opacity(0.93), location: 0.9),
-                                              .init(color: .black, location: 1)],
-                                      startPoint: .top, endPoint: .bottom)
+    static let shade = tintedShade(.black)
+    /// Derselbe Verlauf in einer anderen Farbe: Die Detailseite läuft in die Farbe ihres Posters aus.
+    static func tintedShade(_ color: Color) -> LinearGradient {
+        LinearGradient(stops: [.init(color: color.opacity(0), location: 0),
+                               .init(color: color.opacity(0.012), location: 0.1),
+                               .init(color: color.opacity(0.045), location: 0.2),
+                               .init(color: color.opacity(0.1), location: 0.3),
+                               .init(color: color.opacity(0.18), location: 0.4),
+                               .init(color: color.opacity(0.29), location: 0.5),
+                               .init(color: color.opacity(0.43), location: 0.6),
+                               .init(color: color.opacity(0.6), location: 0.7),
+                               .init(color: color.opacity(0.78), location: 0.8),
+                               .init(color: color.opacity(0.93), location: 0.9),
+                               .init(color: color, location: 1)],
+                       startPoint: .top, endPoint: .bottom)
+    }
     /// Auf der Detailseite ist das Cover groß, der Verlauf reicht dort entsprechend weiter hinauf.
     static let detailShadeStretch: CGFloat = 2.2
     /// Der Verlauf reicht über den Text hinaus nach oben, so setzt er unmerklich ein.
@@ -600,26 +604,31 @@ struct RecommendationCard: View {
 
     var body: some View {
         let atDetails = ghostOpen ?? false
-        PosterView(film: rec.film, cornerRadius: 0, showsBadge: ghostOpen == nil)
+        PosterView(film: rec.film, cornerRadius: 0, badgesHidden: atDetails)
             // Im Flug zum Detail-Cover bleibt der Verlauf stehen (kein Hell-Dunkel-Flackern),
             // nur Match, Titel und Einzeiler lösen sich weich auf, während die Detailseite ihre einblendet.
             .overlay(alignment: .bottom) {
                 if let ghostShade {
-                    Self.shade.frame(maxHeight: ghostShade * (atDetails ? Self.detailShadeStretch : 1))
-                        .frame(maxHeight: .infinity, alignment: .bottom)
+                    // Auf der Karte schwarz, auf der Detailseite in der Farbe des Posters: Beide Töne blenden im Flug ineinander.
+                    ZStack {
+                        Self.shade.opacity(atDetails ? 0 : 1)
+                        Self.tintedShade(PosterTint.color(rec.film.id) ?? .black).opacity(atDetails ? 1 : 0)
+                    }
+                    .frame(maxHeight: ghostShade * (atDetails ? Self.detailShadeStretch : 1))
+                    .frame(maxHeight: .infinity, alignment: .bottom)
                 }
             }
             .overlay(alignment: .bottom) {
                 cover
                     // Nur Cover, Titel und Knöpfe morphen. Der übrige Text blendet gleich am Anfang aus,
-                    // statt mit dem Cover mitzufliegen, und kommt beim Schließen erst nach der Landung zurück.
-                    .animation(atDetails ? .easeOut(duration: 0.12) : .easeOut(duration: 0.2).delay(0.32)) {
+                    // statt mit dem Cover mitzufliegen, und kommt beim Schließen genauso schnell gleich zu Beginn des Rückflugs zurück.
+                    .animation(atDetails ? .easeOut(duration: 0.12) : .easeOut(duration: 0.12).delay(0.06)) {
                         $0.opacity(atDetails ? 0 : 1)
                     }
             }
             .overlay(alignment: .topTrailing) {
                 // Kleines Badge statt eigener Funktion: Die Liste soll geguckt werden, nicht wachsen.
-                if let note = rec.watchlistNote, ghostOpen == nil {
+                if let note = rec.watchlistNote {
                     Label(note.contains(", ") ? "Gemerkt " + note.components(separatedBy: ", ").last! : "Gemerkt",
                           systemImage: "bookmark.fill")
                         .font(.caption.weight(.bold))
@@ -628,6 +637,10 @@ struct RecommendationCard: View {
                         .background(.black.opacity(0.55), in: .capsule)
                         .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
                         .padding(12)
+                        // Fliegt mit und blendet im selben Takt wie die Texte.
+                        .animation(atDetails ? .easeOut(duration: 0.12) : .easeOut(duration: 0.12).delay(0.06)) {
+                            $0.opacity(atDetails ? 0 : 1)
+                        }
                 }
             }
             .frame(width: width)
@@ -1028,6 +1041,7 @@ struct HeroOverlay: View {
                     RoundedRectangle(cornerRadius: hero.open ? 0 : source.radius)
                         .fill(.black)
                         .frame(width: r.width, height: r.height)
+                        .mask { GhostFade(open: hero.open) }
                         .shadow(color: .black.opacity(!hero.open && source.card ? 0.5 : 0), radius: 24, y: 12)
                         .position(x: r.midX - origin.x, y: r.midY - origin.y)
                     if let rec = source.rec {
@@ -1041,14 +1055,16 @@ struct HeroOverlay: View {
                                            ghostShade: hero.cardText?.shade ?? 0,
                                            cornerRadius: hero.open ? 0 : source.radius)
                             .frame(width: s.width, height: s.height)
+                            .mask { GhostFade(open: hero.open) }
                             .scaleEffect(scale)
                             .position(x: r.midX - origin.x, y: r.midY - origin.y)
                     } else {
-                        PosterView(film: film, cornerRadius: 0, showsBadge: false)
+                        PosterView(film: film, cornerRadius: 0, badgesHidden: hero.open)
                             .frame(width: r.width, height: r.height)
                             .clipShape(.rect(cornerRadius: hero.open ? 0 : source.radius))
                             .overlay(RoundedRectangle(cornerRadius: hero.open ? 0 : source.radius)
                                 .strokeBorder(.white.opacity(0), lineWidth: 0.5))
+                            .mask { GhostFade(open: hero.open) }
                             .position(x: r.midX - origin.x, y: r.midY - origin.y)
                     }
                 }
@@ -1085,6 +1101,22 @@ struct HeroOverlay: View {
         }
         .onChange(of: hero.film.map { store.allowsForViewers($0) } ?? true) { _, allowed in
             if !allowed { hero.closeImmediately() }
+        }
+    }
+}
+
+/// Das fliegende Cover läuft am Ziel unten aus wie das Cover der Detailseite, statt dort mit einer dunklen Kante
+/// zu landen. Unterwegs wächst die Blende mit; die volle Fläche darüber reicht über den Rand, damit der Schatten bleibt.
+private struct GhostFade: View {
+    let open: Bool
+
+    var body: some View {
+        ZStack {
+            FilmDetailView.posterFade
+            Color.white.padding(-60).opacity(open ? 0 : 1)
+                // Schneller als der Flug: Sonst bleibt die untere Kante der Karte unterwegs kurz sichtbar.
+                // Beim Schließen langsamer, damit am Detail-Cover keine Kante aufspringt.
+                .animation(open ? .easeOut(duration: 0.18) : .easeIn(duration: 0.4), value: open)
         }
     }
 }

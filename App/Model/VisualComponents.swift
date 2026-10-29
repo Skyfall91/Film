@@ -7,6 +7,8 @@ struct PosterView: View {
     let film: Film
     var cornerRadius: CGFloat = 16
     var showsBadge = true
+    /// Das fliegende Cover blendet seine Tags so schnell aus wie die Karte ihre Texte, statt sie beim Losfliegen zu verlieren.
+    var badgesHidden = false
     var badgeScale: CGFloat = 1
     @State private var retainedPosterID: String?
 
@@ -40,20 +42,11 @@ struct PosterView: View {
                 if let retainedPosterID { PosterCache.releaseVisible(retainedPosterID) }
                 retainedPosterID = nil
             }
-        .overlay(alignment: .topLeading) {
-            if film.isSeries && showsBadge {
-                Text("SERIE").font(.system(size: 10 * badgeScale, weight: .heavy)).tracking(1.2)
-                    .padding(.horizontal, 7).padding(.vertical, 4)
-                    .background(.black.opacity(0.55), in: .capsule)
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 0.5))
-                    .padding(8)
-            }
-        }
         .overlay {
             if film.comingSoon && showsBadge {
                 VStack {
                     HStack {
-                        Text("DEMNÄCHST").font(.system(size: 11 * badgeScale, weight: .heavy)).tracking(1)
+                        Text("Demnächst").font(.system(size: 12 * badgeScale, weight: .bold))
                             .padding(.horizontal, 8).padding(.vertical, 4)
                             .foregroundStyle(.black)
                             .background(.white, in: .capsule)
@@ -61,7 +54,18 @@ struct PosterView: View {
                     }
                     Spacer()
                 }.padding(8)
+                .modifier(BadgeFade(hidden: badgesHidden))
             }
+        }
+    }
+}
+
+/// Gleicher Takt wie die Texte der Vorschlagskarte: schnell weg, beim Zurückfliegen gleich wieder da.
+private struct BadgeFade: ViewModifier {
+    let hidden: Bool
+    func body(content: Content) -> some View {
+        content.animation(hidden ? .easeOut(duration: 0.12) : .easeOut(duration: 0.12).delay(0.06)) {
+            $0.opacity(hidden ? 0 : 1)
         }
     }
 }
@@ -237,5 +241,24 @@ struct AvatarTile: View {
         .clipShape(shape)
         .overlay(shape.stroke(.white.opacity(0.14), lineWidth: max(0.5, size * 0.008)))
         .accessibilityHidden(true)
+    }
+}
+
+/// Hintergrund der Detailseite: der Farbton des Posters, nach unten dunkler (wie bei Apple Music).
+/// Bis die Farbe bekannt ist, bleibt er schwarz und blendet dann weich ein.
+struct PosterTintBackground: View {
+    let film: Film
+
+    var body: some View {
+        let tint = PosterTint.color(film.id)
+        ZStack {
+            Color.black
+            if let tint {
+                LinearGradient(colors: [tint, tint.mix(with: .black, by: 0.5)], startPoint: .top, endPoint: .bottom)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeOut(duration: 0.4), value: tint != nil)
+        .ignoresSafeArea()
     }
 }

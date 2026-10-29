@@ -32,6 +32,15 @@ struct FilmDetailView: View {
         return 36 * (pageWidth - 40) / (pageWidth - 76)
     }
     @State private var pageWidth: CGFloat = 0
+    /// Unten läuft das Cover in den Hintergrund der Seite aus. Das fliegende Cover nutzt am Ziel dieselbe Blende.
+    static let posterFade = LinearGradient(stops: [.init(color: .white, location: 0.45),
+                                           .init(color: .white.opacity(0.94), location: 0.58),
+                                           .init(color: .white.opacity(0.8), location: 0.7),
+                                           .init(color: .white.opacity(0.56), location: 0.8),
+                                           .init(color: .white.opacity(0.28), location: 0.9),
+                                           .init(color: .white.opacity(0.1), location: 0.96),
+                                           .init(color: .clear, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
     /// Verläufe auf dem Cover. Die fliegende Karte zeichnet am Ziel genau diese, darum hier als Werte.
     static let shadeHeight: CGFloat = 560
     @State private var closing = false
@@ -110,7 +119,7 @@ struct FilmDetailView: View {
         .scaleEffect(1 - edgeProgress * 0.14, anchor: .center)
         .offset(x: edgeDrag * 0.35)
         .opacity(contentVisible ? 1 : 0)
-        .background(BlurredBackdrop(film: film).opacity(contentVisible ? 1 - edgeProgress * 0.35 : 0))
+        .background(PosterTintBackground(film: film).opacity(contentVisible ? 1 - edgeProgress * 0.35 : 0))
         // Beim Schließen schnell weg, damit Match und Einzeiler der Karte schon während des Flugs da sind.
         .animation(contentVisible ? .easeOut(duration: 0.35) : .easeOut(duration: 0.18), value: contentVisible)
         .simultaneousGesture(edgeSwipe, isEnabled: onClose != nil && !closing)
@@ -186,22 +195,14 @@ struct FilmDetailView: View {
                 // das fliegende Cover landet ohne Sprung.
                 .overlay {
                     // Derselbe Verlauf wie auf der Karte, nur höher: Beim Öffnen wächst er, statt neu aufzubauen.
-                    RecommendationCard.shade
+                    // In der Farbe des Posters, so geht das Cover ohne dunkles Band in die Seite über.
+                    RecommendationCard.tintedShade(PosterTint.color(film.id) ?? .black)
                         .frame(maxHeight: shadeHeight.map { $0 * RecommendationCard.detailShadeStretch } ?? Self.shadeHeight)
                         .frame(maxHeight: .infinity, alignment: .bottom)
                         .allowsHitTesting(false)
                 }
                 // Unten löst sich das Cover in seinen eigenen unscharfen Hintergrund auf, statt an einer Kante zu enden.
-                .mask {
-                    LinearGradient(stops: [.init(color: .white, location: 0.45),
-                                           .init(color: .white.opacity(0.94), location: 0.58),
-                                           .init(color: .white.opacity(0.8), location: 0.7),
-                                           .init(color: .white.opacity(0.56), location: 0.8),
-                                           .init(color: .white.opacity(0.28), location: 0.9),
-                                           .init(color: .white.opacity(0.1), location: 0.96),
-                                           .init(color: .clear, location: 1)],
-                                   startPoint: .top, endPoint: .bottom)
-                }
+                .mask { Self.posterFade }
                 .overlay(alignment: .bottomLeading) {
                     titleBlock.padding(.horizontal, 20).padding(.bottom, 18)
                 }

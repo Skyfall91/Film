@@ -223,12 +223,13 @@ struct CatalogView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 22) {
-                    Picker("Art", selection: $kind.animation(.smooth)) {
-                        Text("Alles").tag(0)
-                        Text("Filme").tag(1)
-                        Text("Serien").tag(2)
+                    // Dieselben Chips wie die Genres darunter, nur als eigene Reihe.
+                    HStack(spacing: 8) {
+                        ForEach([(0, "Alles"), (1, "Filme"), (2, "Serien")], id: \.0) { value, label in
+                            chip(label, selected: kind == value, group: "kind") { kind = value }
+                        }
                     }
-                    .pickerStyle(.segmented)
+                    .sensoryFeedback(.selection, trigger: kind)
                     if !soon.isEmpty && genre == nil && kind != 2 {
                         Text("Demnächst").font(.title3.weight(.bold))
                         ScrollView(.horizontal, showsIndicators: false) {
@@ -249,8 +250,10 @@ struct CatalogView: View {
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 8) {
-                            chip(nil, "Alle")
-                            ForEach(FilmIndex.allGenres, id: \.self) { chip($0, $0) }
+                            chip("Alle", selected: genre == nil, group: "genre") { genre = nil }
+                            ForEach(FilmIndex.allGenres, id: \.self) { g in
+                                chip(g, selected: genre == g, group: "genre") { genre = g }
+                            }
                         }
                     }
                     .scrollClipDisabled()
@@ -285,14 +288,15 @@ struct CatalogView: View {
 
     @Namespace private var chipNS
 
-    private func chip(_ value: String?, _ label: String) -> some View {
-        Button { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { genre = value } } label: {
+    /// Die weiße Fläche gleitet innerhalb ihrer Reihe (`group`) zum gewählten Chip.
+    private func chip(_ label: String, selected: Bool, group: String, select: @escaping () -> Void) -> some View {
+        Button { withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { select() } } label: {
             Text(label).font(.subheadline.weight(.semibold))
                 .padding(.horizontal, 14).padding(.vertical, 8)
-                .foregroundStyle(genre == value ? .black : .white)
+                .foregroundStyle(selected ? .black : .white)
                 .background {
-                    if genre == value {
-                        Capsule().fill(.white).matchedGeometryEffect(id: "chip", in: chipNS)
+                    if selected {
+                        Capsule().fill(.white).matchedGeometryEffect(id: group, in: chipNS)
                     } else {
                         Capsule().fill(.white.opacity(0.1))
                     }
