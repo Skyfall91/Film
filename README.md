@@ -27,3 +27,11 @@ Xcode 26, iOS 26 und tvOS 26. Das Team unter *Signing & Capabilities* einmal aus
 - `Tests/`: Zustands- und Oberflächentests
 
 Poster werden beim ersten Start geladen und nicht mitgeliefert. „Abspielen“ zeigt den offiziellen Trailer.
+
+## Daten und Lizenzen
+
+- Wertungen, Staffeln und Poster-Links: [OMDb API](https://www.omdbapi.com), CC BY-NC 4.0
+- Empfehlungsmodell: [MovieLens](https://grouplens.org/datasets/movielens/), GroupLens Research. F. M. Harper, J. A. Konstan: *The MovieLens Datasets: History and Context*. ACM TiiS 5(4), 2015, [doi:10.1145/2827872](https://doi.org/10.1145/2827872). Mitgeliefert werden nur daraus abgeleitete Werte.
+- Trailer von den offiziellen Studio-Kanälen auf YouTube, abgespielt mit [YouTubeKit](https://github.com/alexeichhorn/YouTubeKit) (MIT)
+
+Nicht kommerzielles Studienprojekt. Filmtitel, Poster und Trailer gehören ihren Rechteinhabern.
