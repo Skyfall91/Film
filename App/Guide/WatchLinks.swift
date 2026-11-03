@@ -72,6 +72,24 @@ enum WatchProvider: String, CaseIterable, Identifiable, Codable, Sendable {
         }
     }
 
+    /// Anbieter-Nummern bei TMDB/JustWatch in Deutschland, für „läuft bei“ und den Filter „Auf meinen Diensten“.
+    var tmdbIDs: [Int] {
+        switch self {
+        case .netflix: [8, 1796]
+        case .prime: [9, 10]
+        case .disney: [337]
+        case .appleTV: [350, 2]
+        case .wow: [30, 29]
+        case .paramount: [531]
+        case .joyn: [304, 421]
+        case .rtl: [298]
+        case .magenta: [178]
+        case .mediathek: [219, 537]
+        case .youtube: [192]
+        case .googlePlay: [3]
+        }
+    }
+
     func url(for film: Film) -> URL? {
         let term = film.title
         switch self {
@@ -82,7 +100,7 @@ enum WatchProvider: String, CaseIterable, Identifiable, Codable, Sendable {
         case .appleTV:
             return WatchLinks.url("https://tv.apple.com/de/search", ["term": term])
         case .youtube:
-            return WatchLinks.url("https://www.youtube.com/results", ["search_query": "\(term) \(film.year) \(film.isSeries ? "Serie" : "Film")"])
+            return WatchLinks.url("https://www.youtube.com/results", ["search_query": "\(term) \(film.isSeries ? "Serie" : "Film")"])
         case .googlePlay:
             return WatchLinks.url("https://play.google.com/store/search", ["q": term, "c": "movies"])
         case .disney:
@@ -118,7 +136,15 @@ enum WatchLinks {
 
     /// Google zeigt zu „<Titel> <Jahr> stream“ die Box mit allen Diensten, auf denen der Titel läuft.
     static func google(_ film: Film) -> URL? {
-        url("https://www.google.com/search", ["q": "\(film.title) \(film.year) \(film.isSeries ? "Serie" : "Film") stream"])
+        let year = film.year > 0 ? " \(film.year)" : ""
+        return url("https://www.google.com/search", ["q": "\(film.title)\(year) \(film.isSeries ? "Serie" : "Film") stream"])
+    }
+
+    /// Zum Teilen: Letterboxd, wenn der Titel eine IMDb-Nummer hat, sonst seine Seite bei TMDB oder Apple, sonst Google.
+    static func share(_ film: Film) -> URL {
+        if !film.imdbID.isEmpty, let url = URL(string: "https://letterboxd.com/imdb/\(film.imdbID)/") { return url }
+        if let link = film.link, let url = URL(string: link) { return url }
+        return google(film) ?? URL(string: "https://www.google.com")!
     }
 
     static func justWatch(_ film: Film) -> URL? {
@@ -126,11 +152,11 @@ enum WatchLinks {
     }
 
     static func imdb(_ film: Film) -> URL? {
-        URL(string: "https://www.imdb.com/title/\(film.imdbID)/")
+        film.imdbID.isEmpty ? nil : URL(string: "https://www.imdb.com/title/\(film.imdbID)/")
     }
 
     static func wikipedia(_ film: Film) -> URL? {
-        url("https://de.wikipedia.org/w/index.php", ["search": "\(film.title) \(film.year) \(film.isSeries ? "Fernsehserie" : "Film")"])
+        url("https://de.wikipedia.org/w/index.php", ["search": "\(film.title) \(film.year > 0 ? String(film.year) : "") \(film.isSeries ? "Fernsehserie" : "Film")"])
     }
 
     /// Der Trailer öffnet sich bei YouTube, die App selbst spielt nichts ab.

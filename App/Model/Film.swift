@@ -44,6 +44,9 @@ struct Film: Codable, Identifiable, Hashable, Sendable {
     var tagline: String? = nil
     /// Kurze Stimmen der Film-Redaktion, Blickwinkel und Satz, spoilerfrei.
     var voices: [Voice]? = nil
+    /// Nur Titel aus dem Online-Katalog (Guide): Wertung bei TMDB (0-10) und Seite des Titels dort bzw. bei Apple.
+    var tmdbRating: Double? = nil
+    var link: String? = nil
 
     struct Voice: Codable, Hashable, Sendable {
         let label: String
@@ -395,7 +398,19 @@ enum FilmIndex {
 
     static let byID: [String: Film] = Dictionary(uniqueKeysWithValues: all.map { ($0.id, $0) })
 
-    static func film(_ id: String) -> Film? { byID[id] }
+    static func film(_ id: String) -> Film? { byID[id] ?? online[id] }
+
+    /// Titel aus dem Online-Katalog des Guides, die gerade angezeigt oder gemerkt sind.
+    /// So finden Poster-Cache und Poster-Farbe sie wie mitgelieferte Filme.
+    static var online: [String: Film] = [:]
+
+    static func register(_ films: [Film]) {
+        for film in films where byID[film.id] == nil {
+            // Ausführlichere Fassung (mit Laufzeit, Besetzung) nicht durch ein Suchergebnis ersetzen.
+            if let known = online[film.id], known.runtime > 0, film.runtime == 0 { continue }
+            online[film.id] = film
+        }
+    }
 
     /// Erster Satz je Film (siehe `Film.hook`), mit der Beschreibung, aus der er stammt.
     static var hooks: [String: (synopsis: String, hook: String)] = [:]

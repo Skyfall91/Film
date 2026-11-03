@@ -18,6 +18,9 @@ settings:
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     CODE_SIGN_STYLE: Automatic
+    # Optional: kostenloser TMDB-Schlüssel (themoviedb.org/settings/api) für über eine Million Titel mit Verfügbarkeit.
+    # Lässt sich auch in der App unter Einstellungen eintragen. Ohne Schlüssel nutzt der Guide den iTunes-Katalog.
+    TMDB_API_KEY: ""
 targets:
   Film:
     type: application
