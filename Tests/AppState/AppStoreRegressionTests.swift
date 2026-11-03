@@ -363,54 +363,6 @@ final class InteractionPerformanceRegressionTests: XCTestCase {
         XCTAssertLessThan(median, 0.08, "A 200-rating refit must not monopolize the UI actor")
     }
 
-    @MainActor func testDetailCloseInterruptsOpeningInsteadOfWaitingForLanding() async throws {
-        let hero = HeroCoordinator()
-        let film = try XCTUnwrap(FilmIndex.film("dune"))
-        hero.show(film, from: "test")
-        hero.detailFrame = CGRect(x: 0, y: 0, width: 100, height: 150)
-        try await Task.sleep(for: .milliseconds(40))
-        XCTAssertTrue(hero.open)
-        hero.close()
-        await Task.yield()
-        XCTAssertFalse(hero.open, "Closing must react immediately, even during the opening animation")
-        try await Task.sleep(for: .milliseconds(650))
-        XCTAssertNil(hero.film, "A stale opening task must not reopen the detail")
-    }
-
-    @MainActor func testDetailClosedBeforeLayoutCannotReappear() async throws {
-        let hero = HeroCoordinator()
-        hero.show(try XCTUnwrap(FilmIndex.film("dune")), from: "test")
-        hero.close()
-        XCTAssertNil(hero.film)
-        try await Task.sleep(for: .milliseconds(400))
-        XCTAssertNil(hero.film)
-        XCTAssertFalse(hero.open)
-    }
-
-    @MainActor func testGhostReturnKeepsQueuedNextDetail() async throws {
-        let hero = HeroCoordinator()
-        let first = try XCTUnwrap(FilmIndex.film("dune"))
-        let second = try XCTUnwrap(FilmIndex.all.first { $0.id != first.id })
-        hero.sources[HeroCoordinator.key(first.id, "test")] = .init(
-            frame: CGRect(x: 10, y: 20, width: 100, height: 150), radius: 12)
-        hero.show(first, from: "test")
-        hero.detailFrame = CGRect(x: 0, y: 0, width: 200, height: 300)
-        try await Task.sleep(for: .milliseconds(40))
-        XCTAssertNotNil(hero.ghost)
-        hero.close()
-        XCTAssertFalse(hero.open)
-        hero.show(second, from: "next")
-        // Der Rückflug dauert 560 ms, erst danach öffnet der vorgemerkte Film.
-        try await Task.sleep(for: .milliseconds(640))
-        XCTAssertEqual(hero.film?.id, second.id)
-        hero.detailFrame = CGRect(x: 0, y: 0, width: 200, height: 300)
-        try await Task.sleep(for: .milliseconds(40))
-        XCTAssertTrue(hero.open)
-        hero.close()
-        try await Task.sleep(for: .milliseconds(450))
-        XCTAssertNil(hero.film)
-    }
-
     @MainActor func testSwipeUndoRestoresLargeHistoryExactly() throws {
         let store = AppStore(ephemeral: true)
         var profile = Profile(name: "Performance", colorIndex: 0)

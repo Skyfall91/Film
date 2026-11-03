@@ -55,9 +55,9 @@ struct GuideDetailView: View {
 
     private var header: some View {
         HStack(alignment: .bottom, spacing: 16) {
-            PosterView(film: film, cornerRadius: 14)
+            PosterView(film: film, cornerRadius: 14, size: .small)
                 .frame(width: 132)
-                .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+                .cardShadow(cornerRadius: 14)
             VStack(alignment: .leading, spacing: 8) {
                 Text(shown.title)
                     .font(Theme.filmTitle(size: 28))

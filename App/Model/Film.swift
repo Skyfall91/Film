@@ -141,6 +141,8 @@ struct Film: Codable, Identifiable, Hashable, Sendable {
 
     /// Dekodiertes Poster aus dem Cache, wird beim Swipen nicht jedes Frame neu geladen.
     var posterImage: UIImage? { PosterCache.poster(id) }
+    /// Kachelgröße für Raster und Reihen.
+    var posterSmall: UIImage? { PosterCache.small(id) }
     /// Winzige Version für den unscharfen Hintergrund (Blur auf 40 px statt 800 px).
     var posterThumbnail: UIImage? { PosterCache.thumbnail(id) }
 }
@@ -149,19 +151,36 @@ struct Film: Codable, Identifiable, Hashable, Sendable {
 /// zeichnet sich genau diese Kachel neu, nicht jede Kachel der App.
 @Observable
 final class PosterSlot {
+    /// Volle Größe für große Flächen (Detail, Vorschlagskarte, Fernseher).
     var image: UIImage?
+    /// Kachelgröße (höchstens 600 px): für Raster und Reihen reicht das auch auf 3x-Displays.
+    var small: UIImage?
     var thumb: UIImage?
+}
+
+/// Darstellungsgröße eines Posters. Kacheln brauchen nur ein Viertel des Speichers der vollen Größe.
+enum PosterSize: Sendable {
+    case small, large
 }
 
 /// Poster werden nicht mitgeliefert (Urheberrecht), sondern beim ersten Start aus dem Netz
 /// geladen und auf dem Gerät gespeichert. Danach geht alles auch offline.
 /// Lesen und Dekodieren läuft im Hintergrund; im Speicher bleiben nur die zuletzt
-/// genutzten Poster (alle 417 dekodiert wären weit über 1 GB).
+/// genutzten Poster (alle 417 dekodiert wären weit über 1 GB). Große und kleine Fassung
+/// haben getrennte Grenzen: Ein Raster voller Kacheln verdrängt so nicht die großen Bilder und umgekehrt.
 enum PosterCache {
     private static var slots: [String: PosterSlot] = [:]
-    /// Zuletzt genutzte Poster, älteste zuerst.
-    private static var recent: [String] = []
-    private static let memoryLimit = 48
+    /// Zuletzt genutzte Poster je Größe, älteste zuerst.
+    private static var recentLarge: [String] = []
+    private static var recentSmall: [String] = []
+    #if os(tvOS)
+    /// Der Fernseher zeigt Raster aus großen Postern.
+    private static let largeLimit = 48
+    #else
+    private static let largeLimit = 24
+    #endif
+    private static let smallLimit = 90
+    /// Laufende Ladevorgänge je Poster und Größe.
     private static var loading: Set<String> = []
     /// A visible cover and the background prefetch share the same download.
     private static var downloads: [String: Task<Data?, Never>] = [:]
@@ -169,28 +188,48 @@ enum PosterCache {
     private static var retryTasks: [String: Task<Void, Never>] = [:]
     /// Mounted covers keep their decoded image while the catalog scrolls.
     /// More than one view may display the same title (card, detail and morph).
-    private static var visibleReaders: [String: Int] = [:]
+    private static var visibleLarge: [String: Int] = [:]
+    private static var visibleSmall: [String: Int] = [:]
 
-    static func retainVisible(_ id: String) {
-        visibleReaders[id, default: 0] += 1
-        loadIfNeeded(id)
+    private static func loadingKey(_ id: String, _ size: PosterSize) -> String { size == .large ? "\(id)#L" : "\(id)#S" }
+
+    static func retainVisible(_ id: String, size: PosterSize = .large) {
+        switch size {
+        case .large: visibleLarge[id, default: 0] += 1
+        case .small: visibleSmall[id, default: 0] += 1
+        }
+        loadIfNeeded(id, size: size)
         scheduleRetry(id)
     }
 
-    static func releaseVisible(_ id: String) {
-        if let count = visibleReaders[id], count > 1 { visibleReaders[id] = count - 1 }
-        else { visibleReaders[id] = nil }
+    static func releaseVisible(_ id: String, size: PosterSize = .large) {
+        switch size {
+        case .large:
+            if let count = visibleLarge[id], count > 1 { visibleLarge[id] = count - 1 } else { visibleLarge[id] = nil }
+        case .small:
+            if let count = visibleSmall[id], count > 1 { visibleSmall[id] = count - 1 } else { visibleSmall[id] = nil }
+        }
         trimMemory()
     }
 
-    private static func loadIfNeeded(_ id: String) {
-        if slot(id).image == nil { load(id) }
+    private static func isVisible(_ id: String) -> Bool { visibleLarge[id] != nil || visibleSmall[id] != nil }
+
+    private static func loadIfNeeded(_ id: String, size: PosterSize) {
+        let slot = slot(id)
+        switch size {
+        case .large: if slot.image == nil { load(id, size: .large) }
+        case .small: if slot.small == nil { load(id, size: .small) }
+        }
     }
 
     private static func trimMemory() {
-        while recent.count > memoryLimit,
-              let index = recent.firstIndex(where: { visibleReaders[$0] == nil }) {
-            slots[recent.remove(at: index)]?.image = nil
+        while recentLarge.count > largeLimit,
+              let index = recentLarge.firstIndex(where: { visibleLarge[$0] == nil }) {
+            slots[recentLarge.remove(at: index)]?.image = nil
+        }
+        while recentSmall.count > smallLimit,
+              let index = recentSmall.firstIndex(where: { visibleSmall[$0] == nil }) {
+            slots[recentSmall.remove(at: index)]?.small = nil
         }
     }
 
@@ -211,26 +250,37 @@ enum PosterCache {
 
     static func poster(_ id: String) -> UIImage? {
         let slot = slot(id)
-        if let image = slot.image { touch(id); return image }
-        load(id)
+        if let image = slot.image { touch(id, .large); return image }
+        load(id, size: .large)
         return slot.image
+    }
+
+    /// Kachelgröße; liegt die volle Größe schon im Speicher, wird sie mitbenutzt.
+    static func small(_ id: String) -> UIImage? {
+        let slot = slot(id)
+        if let small = slot.small { touch(id, .small); return small }
+        if let image = slot.image { return image }
+        load(id, size: .small)
+        return slot.small
     }
 
     /// Winzige Version für den unscharfen Hintergrund (Blur auf 40 px statt 800 px).
     static func thumbnail(_ id: String) -> UIImage? {
         let slot = slot(id)
-        if slot.thumb == nil { load(id) }
+        if slot.thumb == nil { load(id, size: .small) }
         return slot.thumb
     }
 
     /// Read and decode cached covers away from the UI thread, including the first card.
-    static func warmUp(_ ids: [String]) {
-        for id in ids where slot(id).image == nil { load(id) }
+    static func warmUp(_ ids: [String], size: PosterSize = .large) {
+        for id in ids { loadIfNeeded(id, size: size) }
     }
 
     /// Keep the remaining catalog available offline without competing with the first screen.
+    /// Im Stromsparmodus wartet das bis später; über Mobilfunk und in sparsamen Netzen lädt es nicht vor.
     static func prefetchAll(_ ids: [String]) async {
         do { try await Task.sleep(for: .seconds(6)) } catch { return }
+        guard !ProcessInfo.processInfo.isLowPowerModeEnabled else { return }
         let missing = await missingFiles(ids, folder: folder)
         guard !Task.isCancelled else { return }
         await withTaskGroup(of: Void.self) { group in
@@ -239,7 +289,7 @@ enum PosterCache {
                 if let id = next.next() { group.addTask(priority: .utility) { await prefetch(id) } }
             }
             for await _ in group {
-                guard !Task.isCancelled else { group.cancelAll(); break }
+                guard !Task.isCancelled, !ProcessInfo.processInfo.isLowPowerModeEnabled else { group.cancelAll(); break }
                 if let id = next.next() { group.addTask(priority: .utility) { await prefetch(id) } }
             }
         }
@@ -250,26 +300,27 @@ enum PosterCache {
     }
 
     private static func prefetch(_ id: String) async {
-        guard !Task.isCancelled, !loading.contains(id) else { return }
-        _ = await download(id)
+        guard !Task.isCancelled, !loading.contains(loadingKey(id, .large)), !loading.contains(loadingKey(id, .small)) else { return }
+        _ = await download(id, background: true)
     }
 
-    private static func load(_ id: String) {
-        guard !loading.contains(id), (retryAfter[id] ?? .distantPast) <= .now else { return }
-        loading.insert(id)
+    private static func load(_ id: String, size: PosterSize) {
+        let key = loadingKey(id, size)
+        guard !loading.contains(key), (retryAfter[id] ?? .distantPast) <= .now else { return }
+        loading.insert(key)
         let url = file(id)
         Task(priority: .userInitiated) {
-            defer { loading.remove(id) }
+            defer { loading.remove(key) }
             var data = await read(url)
-            if data == nil { data = await download(id) }
+            if data == nil { data = await download(id, background: false) }
             guard let data else { failed(id); return }
-            guard let decoded = await decode(data) else {
+            guard let decoded = await decode(data, maxPixelSize: size == .large ? 1600 : 600) else {
                 await removeFile(url)
                 failed(id)
                 return
             }
             retryAfter[id] = nil
-            store(id, decoded.image, thumb: decoded.thumb)
+            store(id, size: size, image: decoded.image, thumb: decoded.thumb)
         }
     }
 
@@ -279,39 +330,55 @@ enum PosterCache {
     }
 
     private static func scheduleRetry(_ id: String) {
-        guard visibleReaders[id, default: 0] > 0, retryTasks[id] == nil,
+        guard isVisible(id), retryTasks[id] == nil,
               let next = retryAfter[id] else { return }
         let delay = max(0, next.timeIntervalSinceNow)
         retryTasks[id] = Task(priority: .utility) {
             do { try await Task.sleep(for: .seconds(delay)) } catch { retryTasks[id] = nil; return }
             retryTasks[id] = nil
-            guard visibleReaders[id, default: 0] > 0, slot(id).image == nil else { return }
-            load(id)
+            if visibleLarge[id] != nil { loadIfNeeded(id, size: .large) }
+            if visibleSmall[id] != nil { loadIfNeeded(id, size: .small) }
         }
     }
 
-    private static func store(_ id: String, _ image: UIImage, thumb: UIImage) {
+    private static func store(_ id: String, size: PosterSize, image: UIImage, thumb: UIImage) {
         let slot = slot(id)
-        slot.image = image
-        slot.thumb = thumb
-        touch(id)
-        // Unscharfen Hintergrund gleich mit vorbereiten (im Hintergrund), damit er beim Nachrücken bereitliegt.
-        BackdropBlur.thumbnailReady(id)
-        // Ältestes Poster aus dem Speicher werfen; das kleine Vorschaubild bleibt.
+        switch size {
+        case .large: slot.image = image
+        case .small: slot.small = image
+        }
+        if slot.thumb == nil {
+            slot.thumb = thumb
+            // Unscharfen Hintergrund gleich mit vorbereiten (im Hintergrund), damit er beim Nachrücken bereitliegt.
+            BackdropBlur.thumbnailReady(id)
+        }
+        touch(id, size)
+        // Älteste Poster aus dem Speicher werfen; das kleine Vorschaubild bleibt.
         trimMemory()
     }
 
-    private static func touch(_ id: String) {
-        if recent.last == id { return }
-        recent.removeAll { $0 == id }
-        recent.append(id)
+    private static func touch(_ id: String, _ size: PosterSize) {
+        switch size {
+        case .large:
+            if recentLarge.last == id { return }
+            if let index = recentLarge.lastIndex(of: id) { recentLarge.remove(at: index) }
+            recentLarge.append(id)
+        case .small:
+            if recentSmall.last == id { return }
+            if let index = recentSmall.lastIndex(of: id) { recentSmall.remove(at: index) }
+            recentSmall.append(id)
+        }
     }
 
-    private static func download(_ id: String) async -> Data? {
+    private static func download(_ id: String, background: Bool) async -> Data? {
         guard let link = FilmIndex.film(id)?.poster, let url = URL(string: link) else { return nil }
         let destination = file(id)
         return await coalescedDownload(id) {
-            guard let (data, response) = try? await URLSession.shared.data(from: url),
+            var request = URLRequest(url: url)
+            // Vorladen im Hintergrund nur über WLAN und ohne Datensparmodus.
+            request.allowsExpensiveNetworkAccess = !background
+            request.allowsConstrainedNetworkAccess = !background
+            guard let (data, response) = try? await URLSession.shared.data(for: request),
                   (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
             await write(data, to: destination)
             return data
@@ -340,13 +407,14 @@ enum PosterCache {
         try? data.write(to: url, options: .atomic)
     }
 
-    @concurrent nonisolated private static func decode(_ data: Data) async -> (image: UIImage, thumb: UIImage)? {
+    /// Dekodiert direkt in der Zielgröße (ImageIO skaliert beim Lesen, ohne das volle Bild auszupacken).
+    @concurrent nonisolated private static func decode(_ data: Data, maxPixelSize: Int) async -> (image: UIImage, thumb: UIImage)? {
         guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
               let cg = CGImageSourceCreateThumbnailAtIndex(source, 0, [
                 kCGImageSourceCreateThumbnailFromImageAlways: true,
                 kCGImageSourceCreateThumbnailWithTransform: true,
                 kCGImageSourceShouldCacheImmediately: true,
-                kCGImageSourceThumbnailMaxPixelSize: 1600
+                kCGImageSourceThumbnailMaxPixelSize: maxPixelSize
               ] as CFDictionary) else { return nil }
         let image = UIImage(cgImage: cg)
         return (image, makeThumb(image))

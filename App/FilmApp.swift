@@ -24,6 +24,8 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
     func application(_ application: UIApplication, willFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         // Den Filmkatalog schon lesen, während das Fenster entsteht, statt danach auf dem Hauptthread.
         Task.detached(priority: .userInitiated) { _ = FilmIndex.all }
+        // Antworten von TMDB/iTunes und Anbieter-Logos zwischenspeichern (der Standard hält nur wenige MB).
+        URLCache.shared = URLCache(memoryCapacity: 16 * 1024 * 1024, diskCapacity: 150 * 1024 * 1024)
         return true
     }
 

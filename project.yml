@@ -30,6 +30,18 @@ targets:
         excludes:
           - "AppIcon.icon/**"
           - "**/.impeccable/**"
+          # Oberfläche der früheren App (Konto, Abo, Wischen, Player, Begleit-App): Der Guide nutzt sie nicht.
+          # Nicht mitzubauen macht die App kleiner und das Bauen schneller. Die Dateien bleiben im Projekt.
+          - "Views/AccountScreens.swift"
+          - "Views/BrowseScreens.swift"
+          - "Views/FilmScreens.swift"
+          - "Views/ForYouView.swift"
+          - "Views/NativePlayer.swift"
+          - "Views/Onboarding.swift"
+          - "Views/ProfileScreens.swift"
+          - "Views/SwipeCard.swift"
+          - "Views/TasteChat.swift"
+          - "Companion/**"
       - path: App/AppIcon.icon
         type: file
         buildPhase: resources

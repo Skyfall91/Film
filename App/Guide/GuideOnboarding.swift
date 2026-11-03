@@ -340,7 +340,7 @@ private struct GuideFilmPickStep: View {
         return Button {
             withAnimation(.snappy) { store.toggleLiked(film) }
         } label: {
-            PosterView(film: film, cornerRadius: 12, showsBadge: false)
+            PosterView(film: film, cornerRadius: 12, showsBadge: false, size: .small)
                 .overlay {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(Color.black.opacity(selected ? 0.35 : 0))
@@ -450,7 +450,7 @@ private struct GuideReadyStep: View {
                 ForEach(Array(picks.enumerated()), id: \.element.id) { index, film in
                     PosterView(film: film, cornerRadius: 16, showsBadge: false)
                         .frame(width: 150)
-                        .shadow(color: .black.opacity(0.5), radius: 20, y: 10)
+                        .cardShadow(cornerRadius: 16)
                         .rotationEffect(.degrees(shown ? Double(index - 1) * 12 : 0))
                         .offset(x: shown ? CGFloat(index - 1) * 70 : 0, y: shown ? abs(CGFloat(index - 1)) * 18 : 0)
                         .zIndex(index == 1 ? 1 : 0)

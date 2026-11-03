@@ -104,7 +104,7 @@ struct GuideTile: View {
     var body: some View {
         NavigationLink(value: film) {
             VStack(alignment: .leading, spacing: 6) {
-                PosterView(film: film, cornerRadius: 12)
+                PosterView(film: film, cornerRadius: 12, size: .small)
                     .overlay(alignment: .topTrailing) {
                         if store.isSeen(film) {
                             badge("checkmark")
@@ -161,11 +161,17 @@ struct GuideTile: View {
 
 struct GuideGrid: View {
     let films: [Film]
+    /// Meldet Kacheln, die gerade gebaut werden (für endloses Nachladen).
+    var onItemAppear: ((Film) -> Void)? = nil
+
+    private static let columns = [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12, alignment: .top)]
 
     var body: some View {
-        LazyVGrid(columns: [GridItem(.adaptive(minimum: 104, maximum: 180), spacing: 12, alignment: .top)],
-                  alignment: .leading, spacing: 18) {
-            ForEach(films) { GuideTile(film: $0) }
+        LazyVGrid(columns: Self.columns, alignment: .leading, spacing: 18) {
+            ForEach(films) { film in
+                GuideTile(film: film)
+                    .onAppear { onItemAppear?(film) }
+            }
         }
     }
 }
@@ -246,7 +252,7 @@ struct GuideDiscoverView: View {
     @Environment(GuideStore.self) private var store
     @State private var showSettings = false
 
-    private static let released = FilmIndex.all.filter { !$0.comingSoon }
+    private static var released: [Film] { GuideCatalog.released }
     private static let topFilms = GuideCatalog.byRating(released.filter { !$0.isSeries })
     private static let topSeries = GuideCatalog.byRating(released.filter(\.isSeries))
     private static let newest = released.filter { $0.year >= 2023 }.sorted { ($0.year, $0.imdbRating ?? 0) > ($1.year, $1.imdbRating ?? 0) }
@@ -281,7 +287,8 @@ struct GuideDiscoverView: View {
         let picks = store.todaysPicks()
         let forYou = store.forYou()
         ScrollView {
-            VStack(alignment: .leading, spacing: 32) {
+            // Lazy: Die gut zwanzig Reihen entstehen erst beim Scrollen, so lädt der Start nur die Poster oben.
+            LazyVStack(alignment: .leading, spacing: 32) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(greeting)
                         .font(.system(size: 34, weight: .heavy, design: .rounded))
@@ -308,7 +315,7 @@ struct GuideDiscoverView: View {
                 GuideShelf(title: "Serien", films: Self.topSeries)
                 GuideShelf(title: "Demnächst", films: Self.comingSoon)
                 ForEach(orderedGenres, id: \.self) { genre in
-                    GuideShelf(title: genre, films: GuideCatalog.byRating(Self.released.filter { $0.genres.contains(genre) }))
+                    GuideShelf(title: genre, films: GuideCatalog.byGenre[genre] ?? [])
                 }
                 GuideShelf(title: "Für die ganze Familie", films: Self.family)
                 GuideShelf(title: "Unter 95 Minuten", films: Self.short)
@@ -400,21 +407,26 @@ struct GuideTodayCarousel: View {
                 }
             }
             .clipShape(.rect(cornerRadius: 26))
-            .shadow(color: .black.opacity(0.45), radius: 18, y: 10)
+            // Schatten aus einer Form statt aus dem Posterinhalt: Den rechnet das System nicht bei jedem Scrollbild neu.
+            .cardShadow(cornerRadius: 26)
             .accessibilityElement(children: .combine)
     }
 }
 
 /// „Worauf hast du Lust?“: Stimmungen als farbige Kacheln.
 struct GuideMoodTiles: View {
+    /// Fertige Listen je Stimmung, statt sie bei jedem Neuzeichnen zu sortieren.
+    private static let lists: [String: GuideList] = Dictionary(uniqueKeysWithValues: GuideDiscoverView.moods.map { mood in
+        (mood, GuideList(title: mood.moodLabel, ids: (GuideCatalog.byMood[mood] ?? []).map(\.id)))
+    })
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             GuideSectionHeader(title: "Worauf hast du Lust?")
             ScrollView(.horizontal, showsIndicators: false) {
                 LazyHGrid(rows: [GridItem(.fixed(64), spacing: 10), GridItem(.fixed(64), spacing: 10)], spacing: 10) {
                     ForEach(GuideDiscoverView.moods, id: \.self) { mood in
-                        NavigationLink(value: GuideList(title: mood.moodLabel,
-                                                        ids: GuideCatalog.byRating(FilmIndex.all.filter { $0.moods.contains(mood) && !$0.comingSoon }).map(\.id))) {
+                        NavigationLink(value: Self.lists[mood] ?? GuideList(title: mood.moodLabel, ids: [])) {
                             tile(mood)
                         }
                         .buttonStyle(.plain)
@@ -497,8 +509,6 @@ struct GuideAllView: View {
         }
         .background(Theme.background)
         .navigationTitle("Stöbern")
-        .animation(.smooth, value: filter)
-        .animation(.smooth, value: scope)
         .onChange(of: scope) { _, new in
             // Stimmungen kennt nur der handverlesene Katalog.
             if new == .everything { filter.mood = nil }
@@ -640,7 +650,13 @@ struct GuideOnlineGrid: View {
         let shown = hideSeen ? films.filter { !store.isSeen($0) } : films
         VStack(alignment: .leading, spacing: 14) {
             if !shown.isEmpty {
-                GuideGrid(films: shown).padding(.horizontal, 16)
+                // Nachladen, sobald eine der letzten Kacheln ins Bild kommt (das Raster baut Kacheln erst dann).
+                GuideGrid(films: shown) { film in
+                    guard !finished, !loading, let index = films.lastIndex(where: { $0.id == film.id }),
+                          index >= films.count - 8 else { return }
+                    Task { await loadMore() }
+                }
+                .padding(.horizontal, 16)
             }
             if failed && films.isEmpty {
                 ContentUnavailableView {
@@ -661,7 +677,6 @@ struct GuideOnlineGrid: View {
                     Spacer()
                 }
                 .frame(height: 60)
-                .onAppear { Task { await loadMore() } }
             } else if !films.isEmpty {
                 Text(OnlineCatalog.usesTMDB ? "Ende der Liste" : "Ohne TMDB-Schlüssel zeigt Stöbern die Bestenlisten des iTunes Store. Über die Suche findest du trotzdem jeden Film.")
                     .font(.footnote)
@@ -919,6 +934,12 @@ struct GuideSettingsSheet: View {
     @Environment(GuideStore.self) private var store
     @Environment(\.dismiss) private var dismiss
     @State private var confirmReset = false
+    @State private var keyDraft = ""
+
+    private func applyKey() {
+        let key = keyDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if key != store.tmdbKey { store.tmdbKey = key }
+    }
 
     var body: some View {
         @Bindable var store = store
@@ -940,9 +961,12 @@ struct GuideSettingsSheet: View {
 
                 Section {
                     LabeledContent("Quelle", value: OnlineCatalog.usesTMDB ? "TMDB, mit Verfügbarkeit" : "iTunes Store")
-                    SecureField("TMDB-API-Schlüssel", text: $store.tmdbKey)
+                    // Erst beim Bestätigen übernehmen: Jede Änderung lädt alle Online-Listen neu.
+                    SecureField("TMDB-API-Schlüssel", text: $keyDraft)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit { applyKey() }
                     if let url = URL(string: "https://www.themoviedb.org/settings/api") {
                         Link("Kostenlosen Schlüssel bei TMDB holen", destination: url)
                     }
@@ -961,10 +985,12 @@ struct GuideSettingsSheet: View {
                 .foregroundStyle(.secondary)
             }
             .navigationTitle("Einstellungen")
+            .onAppear { keyDraft = store.tmdbKey }
+            .onDisappear { applyKey() }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Fertig") { dismiss() }
+                    Button("Fertig") { applyKey(); dismiss() }
                 }
             }
             .confirmationDialog("Kennenlernen neu starten?", isPresented: $confirmReset, titleVisibility: .visible) {

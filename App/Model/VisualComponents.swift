@@ -10,17 +10,19 @@ struct PosterView: View {
     /// Das fliegende Cover blendet seine Tags so schnell aus wie die Karte ihre Texte, statt sie beim Losfliegen zu verlieren.
     var badgesHidden = false
     var badgeScale: CGFloat = 1
+    /// Kacheln laden eine kleinere Fassung (ein Viertel des Speichers), große Flächen die volle.
+    var size: PosterSize = .large
     @State private var retainedPosterID: String?
 
     private func retainPoster() {
         guard retainedPosterID != film.id else { return }
-        if let retainedPosterID { PosterCache.releaseVisible(retainedPosterID) }
+        if let retainedPosterID { PosterCache.releaseVisible(retainedPosterID, size: size) }
         retainedPosterID = film.id
-        PosterCache.retainVisible(film.id)
+        PosterCache.retainVisible(film.id, size: size)
     }
 
     var body: some View {
-        let image = film.posterImage
+        let image = size == .small ? film.posterSmall : film.posterImage
         Color.clear
             .aspectRatio(2 / 3, contentMode: .fit)
             .overlay {
@@ -39,7 +41,7 @@ struct PosterView: View {
             .onAppear { retainPoster() }
             .onChange(of: film.id) { _, _ in retainPoster() }
             .onDisappear {
-                if let retainedPosterID { PosterCache.releaseVisible(retainedPosterID) }
+                if let retainedPosterID { PosterCache.releaseVisible(retainedPosterID, size: size) }
                 retainedPosterID = nil
             }
         .overlay {

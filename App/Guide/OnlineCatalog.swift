@@ -61,6 +61,9 @@ enum OnlineCatalog {
 
     private static var detailCache: [String: FilmDetails] = [:]
     private static var searchCache: [String: [Film]] = [:]
+    /// Älteste Suchen zuerst, damit der Zwischenspeicher nicht endlos wächst.
+    private static var searchOrder: [String] = []
+    private static var trendingCache: (key: String, date: Date, films: [Film])?
 
     static func search(_ text: String) async -> [Film] {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -72,6 +75,8 @@ enum OnlineCatalog {
         let merged = curatedFirst(films)
         FilmIndex.register(merged)
         searchCache[cacheKey] = merged
+        searchOrder.append(cacheKey)
+        if searchOrder.count > 60 { searchCache[searchOrder.removeFirst()] = nil }
         return merged
     }
 
@@ -88,10 +93,13 @@ enum OnlineCatalog {
 
     /// Was gerade viele schauen.
     static func trending() async -> [Film] {
+        // Eine halbe Stunde lang gilt die Liste: Die Startseite fragt bei jedem Erscheinen.
+        if let cached = trendingCache, cached.key == sourceName, Date.now.timeIntervalSince(cached.date) < 1800 { return cached.films }
         let films: [Film]
         if let key = tmdbKey { films = await TMDB.trending(key: key) } else { films = await ITunes.top(genre: nil) }
         let merged = curatedFirst(films)
         FilmIndex.register(merged)
+        if !merged.isEmpty { trendingCache = (sourceName, Date.now, merged) }
         return merged
     }
 
