@@ -1,12 +1,14 @@
-# Film
+# Film-Guide
 
-Ein Film statt tausend Kacheln. Film lernt beim Wischen deinen Geschmack und schlägt dir genau einen Titel für heute vor.
+Branch `guide`: Die App ist hier kein Player mehr, sondern ein Guide zum Filmefinden. Alle Filme und Serien aus dem Katalog lassen sich durchstöbern, filtern, durchsuchen und merken. Auf jeder Titelseite steht, wo man ihn findet: Die Links funktionieren wie bei einer Suchmaschine und öffnen die Live-Suche bei Google (mit der „Ansehen“-Box aller Anbieter), JustWatch und direkt bei den Streamingdiensten.
 
-<p>
-  <img src="Screenshots/app/04-geschmack.png" width="200" alt="Geschmack">
-  <img src="Screenshots/app/02-profil-erstellen.png" width="200" alt="Profil">
-  <img src="Screenshots/app/06-abo.png" width="200" alt="Abo">
-</p>
+- **Entdecken**: Am besten bewertet, Neu, Serien, Demnächst, Genres, Stimmungen, Familie, Geheimtipps
+- **Alle Titel**: Filter nach Art, Genre, Stimmung, Jahrzehnt, Länge, FSK, Gesehenes ausblenden, Sortierung
+- **Suche**: Titel, Originaltitel, Regie, Besetzung, Genre, Stimmung, Jahr, mit Personenseiten
+- **Merkliste** und **Gesehen**, auf dem Gerät gespeichert
+- **Meine Dienste**: eigene Streamingdienste stehen auf jeder Titelseite oben
+
+Nicht mehr Teil der iPhone-App: Konto, Abo, Onboarding, Profile, Empfehlungs-Swipen, Redaktionstexte und Abspielen. Der Code dafür liegt noch im Projekt (die Apple-TV-App nutzt ihn weiter), wird von der iPhone-App aber nicht mehr gestartet. Trailer öffnen sich auf YouTube.
 
 ## Bauen
 
@@ -19,6 +21,7 @@ Xcode 26, iOS 26 und tvOS 26. Das Team unter *Signing & Capabilities* einmal aus
 
 ## Aufbau
 
+- `App/Guide/`: der Film-Guide (Start, Katalog, Suche, Titelseite, Links)
 - `App/`: iPhone- und iPad-App (SwiftUI)
 - `TV/`: Apple-TV-App
 - `Packages/FilmSync`: Abgleich zwischen Geräten
@@ -26,7 +29,7 @@ Xcode 26, iOS 26 und tvOS 26. Das Team unter *Signing & Capabilities* einmal aus
 - `supabase/`: Konten, Geräte und Abos
 - `Tests/`: Zustands- und Oberflächentests
 
-Poster werden beim ersten Start geladen und nicht mitgeliefert. „Abspielen“ zeigt den offiziellen Trailer.
+Poster werden beim ersten Start geladen und nicht mitgeliefert.
 
 ## Daten und Lizenzen
 
