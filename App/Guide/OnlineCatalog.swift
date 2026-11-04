@@ -64,6 +64,8 @@ enum OnlineCatalog {
     /// Älteste Suchen zuerst, damit der Zwischenspeicher nicht endlos wächst.
     private static var searchOrder: [String] = []
     private static var trendingCache: (key: String, date: Date, films: [Film])?
+    private static var browseCache: [String: [Film]] = [:]
+    private static var browseOrder: [String] = []
 
     static func search(_ text: String) async -> [Film] {
         let query = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -82,12 +84,20 @@ enum OnlineCatalog {
 
     /// Eine Seite „Alle Filme“. Leer heißt: keine weiteren Titel.
     static func browse(_ request: OnlineBrowse, page: Int) async -> [Film] {
+        // Wer Filter an- und wieder ausschaltet, bekommt die Seiten sofort statt neu aus dem Netz.
+        let cacheKey = "\(sourceName)|\(String(describing: request))|\(page)"
+        if let cached = browseCache[cacheKey] { return cached }
         let films: [Film]
         if let key = tmdbKey { films = await TMDB.discover(request, page: page, key: key) }
         else if page == 1 { films = await ITunes.top(genre: request.genre) }
         else { films = [] }
         let merged = curatedFirst(films)
         FilmIndex.register(merged)
+        if !merged.isEmpty {
+            browseCache[cacheKey] = merged
+            browseOrder.append(cacheKey)
+            if browseOrder.count > 80 { browseCache[browseOrder.removeFirst()] = nil }
+        }
         return merged
     }
 
@@ -158,6 +168,12 @@ enum OnlineCatalog {
 
     // MARK: Netz
 
+    /// Antworten im Hintergrund auslesen: Details mit voller Besetzung oder 100 Einträge einer Bestenliste
+    /// sollen das Scrollen nicht anhalten.
+    @concurrent nonisolated fileprivate static func decode<T: Decodable & Sendable>(_ type: T.Type, from data: Data) async -> T? {
+        try? JSONDecoder().decode(type, from: data)
+    }
+
     fileprivate static func get(_ url: URL, bearer: String? = nil) async -> Data? {
         var request = URLRequest(url: url, timeoutInterval: 15)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
@@ -210,11 +226,11 @@ private enum TMDB {
 
     // MARK: Listen
 
-    struct Page: Decodable {
+    nonisolated struct Page: Decodable, Sendable {
         let results: [Item]
     }
 
-    struct Item: Decodable {
+    nonisolated struct Item: Decodable, Sendable {
         let id: Int
         let media_type: String?
         let title: String?
@@ -230,7 +246,7 @@ private enum TMDB {
         let vote_count: Int?
         let adult: Bool?
 
-        func film(kind: String) -> Film? {
+        @MainActor func film(kind: String) -> Film? {
             let isTV = kind == "tv"
             guard adult != true, let title = (isTV ? name : self.title) ?? self.title ?? name, !title.isEmpty else { return nil }
             let date = (isTV ? first_air_date : release_date) ?? ""
@@ -266,8 +282,8 @@ private enum TMDB {
         }
     }
 
-    static func films(_ data: Data?, kind: String?) -> [Film] {
-        guard let data, let page = try? JSONDecoder().decode(Page.self, from: data) else { return [] }
+    static func films(_ data: Data?, kind: String?) async -> [Film] {
+        guard let data, let page = await OnlineCatalog.decode(Page.self, from: data) else { return [] }
         return page.results.compactMap { item in
             let itemKind = kind ?? item.media_type ?? ""
             guard itemKind == "movie" || itemKind == "tv" else { return nil }
@@ -279,11 +295,12 @@ private enum TMDB {
 
     static func search(_ query: String, key: String) async -> [Film] {
         let data = await load("/search/multi", [("query", query), ("language", "de-DE"), ("region", "DE"), ("include_adult", "false")], key: key)
-        return films(data, kind: nil)
+        return await films(data, kind: nil)
     }
 
     static func trending(key: String) async -> [Film] {
-        films(await load("/trending/all/week", [("language", "de-DE")], key: key), kind: nil)
+        let data = await load("/trending/all/week", [("language", "de-DE")], key: key)
+        return await films(data, kind: nil)
     }
 
     static func discover(_ request: OnlineBrowse, page: Int, key: String) async -> [Film] {
@@ -315,25 +332,26 @@ private enum TMDB {
             params += [("with_watch_providers", request.providerIDs.map(String.init).joined(separator: "|")),
                        ("with_watch_monetization_types", "flatrate|free|ads")]
         }
-        return films(await load(tv ? "/discover/tv" : "/discover/movie", params, key: key), kind: tv ? "tv" : "movie")
+        let data = await load(tv ? "/discover/tv" : "/discover/movie", params, key: key)
+        return await films(data, kind: tv ? "tv" : "movie")
     }
 
     // MARK: Einzelner Titel
 
-    struct Named: Decodable { let name: String }
-    struct CastMember: Decodable { let name: String }
-    struct CrewMember: Decodable { let name: String; let job: String? }
-    struct Credits: Decodable { let cast: [CastMember]?; let crew: [CrewMember]? }
-    struct Video: Decodable { let key: String; let site: String; let type: String; let iso_639_1: String? }
-    struct Videos: Decodable { let results: [Video] }
-    struct ReleaseDate: Decodable { let certification: String? }
-    struct CountryRelease: Decodable { let iso_3166_1: String; let release_dates: [ReleaseDate] }
-    struct ReleaseDates: Decodable { let results: [CountryRelease] }
-    struct ContentRating: Decodable { let iso_3166_1: String; let rating: String? }
-    struct ContentRatings: Decodable { let results: [ContentRating] }
-    struct ExternalIDs: Decodable { let imdb_id: String? }
-    struct Offer: Decodable { let provider_id: Int; let provider_name: String; let logo_path: String? }
-    struct Region: Decodable {
+    nonisolated struct Named: Decodable, Sendable { let name: String }
+    nonisolated struct CastMember: Decodable, Sendable { let name: String }
+    nonisolated struct CrewMember: Decodable, Sendable { let name: String; let job: String? }
+    nonisolated struct Credits: Decodable, Sendable { let cast: [CastMember]?; let crew: [CrewMember]? }
+    nonisolated struct Video: Decodable, Sendable { let key: String; let site: String; let type: String; let iso_639_1: String? }
+    nonisolated struct Videos: Decodable, Sendable { let results: [Video] }
+    nonisolated struct ReleaseDate: Decodable, Sendable { let certification: String? }
+    nonisolated struct CountryRelease: Decodable, Sendable { let iso_3166_1: String; let release_dates: [ReleaseDate] }
+    nonisolated struct ReleaseDates: Decodable, Sendable { let results: [CountryRelease] }
+    nonisolated struct ContentRating: Decodable, Sendable { let iso_3166_1: String; let rating: String? }
+    nonisolated struct ContentRatings: Decodable, Sendable { let results: [ContentRating] }
+    nonisolated struct ExternalIDs: Decodable, Sendable { let imdb_id: String? }
+    nonisolated struct Offer: Decodable, Sendable { let provider_id: Int; let provider_name: String; let logo_path: String? }
+    nonisolated struct Region: Decodable, Sendable {
         let link: String?
         let flatrate: [Offer]?
         let free: [Offer]?
@@ -341,9 +359,9 @@ private enum TMDB {
         let rent: [Offer]?
         let buy: [Offer]?
     }
-    struct Providers: Decodable { let results: [String: Region] }
+    nonisolated struct Providers: Decodable, Sendable { let results: [String: Region] }
 
-    struct Details: Decodable {
+    nonisolated struct Details: Decodable, Sendable {
         let id: Int
         let title: String?
         let name: String?
@@ -371,7 +389,7 @@ private enum TMDB {
         let external_ids: ExternalIDs?
         let watchProviders: Providers?
 
-        enum CodingKeys: String, CodingKey {
+        nonisolated enum CodingKeys: String, CodingKey {
             case id, title, name, original_title, original_name, overview, tagline, poster_path
             case release_date, first_air_date, last_air_date, runtime, episode_run_time, number_of_seasons, in_production
             case genres, vote_average, vote_count, imdb_id, created_by, credits, videos, release_dates, content_ratings, external_ids
@@ -384,7 +402,7 @@ private enum TMDB {
         let append = tv ? "credits,videos,content_ratings,external_ids,watch/providers" : "credits,videos,release_dates,external_ids,watch/providers"
         guard let data = await load("/\(kind)/\(id)", [("language", "de-DE"), ("append_to_response", append),
                                                        ("include_video_language", "de,en,null")], key: key),
-              let d = try? JSONDecoder().decode(Details.self, from: data) else { return nil }
+              let d = await OnlineCatalog.decode(Details.self, from: data) else { return nil }
         let title = (tv ? d.name : d.title) ?? d.title ?? d.name ?? ""
         let date = (tv ? d.first_air_date : d.release_date) ?? ""
         let year = Int(date.prefix(4)) ?? 0
@@ -448,15 +466,15 @@ private enum TMDB {
         return FilmDetails(film: film, availability: availability)
     }
 
-    struct FindResult: Decodable {
-        struct Hit: Decodable { let id: Int }
+    nonisolated struct FindResult: Decodable, Sendable {
+        nonisolated struct Hit: Decodable, Sendable { let id: Int }
         let movie_results: [Hit]
         let tv_results: [Hit]
     }
 
     static func find(imdbID: String, key: String) async -> (kind: String, id: Int)? {
         guard let data = await load("/find/\(imdbID)", [("external_source", "imdb_id")], key: key),
-              let result = try? JSONDecoder().decode(FindResult.self, from: data) else { return nil }
+              let result = await OnlineCatalog.decode(FindResult.self, from: data) else { return nil }
         if let movie = result.movie_results.first { return ("movie", movie.id) }
         if let show = result.tv_results.first { return ("tv", show.id) }
         return nil
@@ -509,9 +527,9 @@ private enum TMDB {
 // MARK: - iTunes (ohne Schlüssel)
 
 private enum ITunes {
-    struct Response: Decodable { let results: [Item] }
+    nonisolated struct Response: Decodable, Sendable { let results: [Item] }
 
-    struct Item: Decodable {
+    nonisolated struct Item: Decodable, Sendable {
         let trackId: Int?
         let trackName: String?
         let artistName: String?
@@ -524,7 +542,7 @@ private enum ITunes {
         let contentAdvisoryRating: String?
         let trackViewUrl: String?
 
-        var film: Film? {
+        @MainActor var film: Film? {
             guard let trackId, let title = trackName, !title.isEmpty else { return nil }
             let date = releaseDate ?? ""
             let genres = ITunes.genres(primaryGenreName ?? "")
@@ -580,22 +598,23 @@ private enum ITunes {
         guard let url = WatchLinks.url("https://itunes.apple.com/search",
                                        ["term": query, "country": "de", "media": "movie", "entity": "movie", "lang": "de_de", "limit": "40"]),
               let data = await OnlineCatalog.get(url),
-              let response = try? JSONDecoder().decode(Response.self, from: data) else { return [] }
-        return response.results.compactMap(\.film)
+              let response = await OnlineCatalog.decode(Response.self, from: data) else { return [] }
+        return response.results.compactMap { $0.film }
     }
 
     static func lookup(_ film: Film) async -> FilmDetails? {
         let id = film.id.replacingOccurrences(of: "itunes-", with: "")
         guard let url = WatchLinks.url("https://itunes.apple.com/lookup", ["id": id, "country": "de", "lang": "de_de"]),
               let data = await OnlineCatalog.get(url),
-              let found = (try? JSONDecoder().decode(Response.self, from: data))?.results.first?.film else { return nil }
+              let response = await OnlineCatalog.decode(Response.self, from: data),
+              let found = response.results.first?.film else { return nil }
         return FilmDetails(film: found, availability: nil)
     }
 
     // Bestenlisten des iTunes Store je Genre (ohne Schlüssel, ohne Seiten).
-    struct Label: Decodable { let label: String }
-    struct Attributed: Decodable { let label: String?; let attributes: [String: String]? }
-    struct Entry: Decodable {
+    nonisolated struct Label: Decodable, Sendable { let label: String }
+    nonisolated struct Attributed: Decodable, Sendable { let label: String?; let attributes: [String: String]? }
+    nonisolated struct Entry: Decodable, Sendable {
         let name: Label
         let image: [Label]?
         let summary: Label?
@@ -604,12 +623,12 @@ private enum ITunes {
         let id: Attributed
         let category: Attributed?
 
-        enum CodingKeys: String, CodingKey {
+        nonisolated enum CodingKeys: String, CodingKey {
             case name = "im:name", image = "im:image", summary, artist = "im:artist", releaseDate = "im:releaseDate", id, category
         }
     }
-    struct Feed: Decodable {
-        struct Inner: Decodable { let entry: [Entry]? }
+    nonisolated struct Feed: Decodable, Sendable {
+        nonisolated struct Inner: Decodable, Sendable { let entry: [Entry]? }
         let feed: Inner
     }
 
@@ -627,7 +646,7 @@ private enum ITunes {
         }
         guard let url = URL(string: path + "/json"),
               let data = await OnlineCatalog.get(url),
-              let feed = try? JSONDecoder().decode(Feed.self, from: data) else { return [] }
+              let feed = await OnlineCatalog.decode(Feed.self, from: data) else { return [] }
         return (feed.feed.entry ?? []).compactMap { entry -> Film? in
             guard let trackID = entry.id.attributes?["im:id"] else { return nil }
             let date = entry.releaseDate?.label ?? ""

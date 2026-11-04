@@ -295,6 +295,15 @@ enum GuideCatalog {
         return result
     }
 
+    /// Indizes in einer ruhigen Sekunde nach dem Start bauen, nicht beim ersten Tastendruck.
+    static func warmUp() {
+        _ = searchIndex.count
+        _ = peopleIndex.count
+        _ = byGenre.count
+        _ = byMood.count
+        _ = FilmIndex.features.count
+    }
+
     // MARK: Fertige Reihen
 
     /// Reihen der Startseite, einmal beim ersten Öffnen sortiert.
@@ -344,7 +353,20 @@ struct GuideFilter: Equatable {
 
     var isActive: Bool { self != GuideFilter(sort: sort) }
 
+    /// Letztes Ergebnis: Das Raster fragt bei jedem Neuzeichnen, meist mit denselben Filtern.
+    private static var memo: (filter: GuideFilter, seen: Set<String>, count: Int, result: [Film])?
+
     func apply(_ films: [Film], seen: Set<String>) -> [Film] {
+        if let memo = Self.memo, memo.filter == self, memo.count == films.count,
+           memo.seen.count == seen.count, !hideSeen || memo.seen == seen {
+            return memo.result
+        }
+        let result = compute(films, seen: seen)
+        Self.memo = (self, seen, films.count, result)
+        return result
+    }
+
+    private func compute(_ films: [Film], seen: Set<String>) -> [Film] {
         let filtered = films.filter { film in
             switch kind {
             case .all: break

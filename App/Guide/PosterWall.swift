@@ -16,6 +16,11 @@ struct PosterWall: View {
     }
     @State private var focus: Focus?
     @State private var size: CGSize = .zero
+    /// Die Spalten laufen als eine endlose Core-Animation-Bewegung: Die Oberfläche wird dafür
+    /// nicht 30-mal pro Sekunde neu aufgebaut, das Verschieben übernimmt der Render-Server.
+    @State private var running = false
+    @State private var start = Date.now
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let speeds = [14.0, 9.0, 12.0]
     private enum Spot { case any, top, bottom }
@@ -23,24 +28,30 @@ struct PosterWall: View {
     private static let spots: [(column: Int?, spot: Spot)] = [(0, .any), (2, .any), (1, .any), (nil, .top), (nil, .bottom)]
 
     var body: some View {
-        // Die Wand bewegt sich langsam; 30 Bilder/s reichen und lassen der Oberfläche Luft.
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            GeometryReader { geo in
-                let w = Self.tileWidth(geo.size.width)
-                HStack(alignment: .top, spacing: 12) {
-                    ForEach(0..<3, id: \.self) { c in
-                        column(c, w: w, h: w * 1.5, viewportHeight: geo.size.height)
-                            .offset(y: offset(c, t: t, width: geo.size.width))
-                    }
+        GeometryReader { geo in
+            let w = Self.tileWidth(geo.size.width)
+            HStack(alignment: .top, spacing: 12) {
+                ForEach(0..<3, id: \.self) { c in
+                    let total = Self.cycle(c, width: geo.size.width)
+                    column(c, w: w, h: w * 1.5, viewportHeight: geo.size.height)
+                        // Spalte 0 und 2 laufen von -total nach 0, die mittlere von 0 nach -total.
+                        .offset(y: running ? (c == 1 ? -total : 0) : (c == 1 ? 0 : -total))
+                        .animation(running ? Animation.linear(duration: Double(total) / Self.speeds[c]).repeatForever(autoreverses: false) : nil,
+                                   value: running)
                 }
-                .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
-                .clipped()
             }
+            .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
+            .clipped()
         }
         .ignoresSafeArea()
         .allowsHitTesting(false)
-        .onGeometryChange(for: CGSize.self) { $0.size } action: { size = $0 }
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { new in
+            size = new
+            if !running, !reduceMotion, new.width > 30 {
+                start = .now
+                running = true
+            }
+        }
         .onAppear { PosterCache.warmUp(Self.columns.flatMap { $0 }.map(\.id), size: .small) }
         .task {
             var step = 0
@@ -48,7 +59,7 @@ struct PosterWall: View {
                 if size.width > 0 {
                     let spot = Self.spots[step % Self.spots.count]
                     let c = spot.column ?? [0, 1, 2].filter { $0 != focus?.column }.randomElement()!
-                    if let next = film(spot.spot, column: c, t: Date.now.timeIntervalSinceReferenceDate) { focus = next }
+                    if let next = film(spot.spot, column: c, t: running ? Date.now.timeIntervalSince(start) : 0) { focus = next }
                     step += 1
                 }
                 try? await Task.sleep(for: .seconds(2.6))
@@ -56,12 +67,16 @@ struct PosterWall: View {
         }
     }
 
-    private static func tileWidth(_ width: CGFloat) -> CGFloat { (width - 24) / 3 }
+    private static func tileWidth(_ width: CGFloat) -> CGFloat { max(1, (width - 24) / 3) }
 
-    /// Senkrechte Verschiebung einer Spalte zum Zeitpunkt `t`, die mittlere läuft nach oben.
+    /// Höhe eines Durchlaufs einer Spalte: danach wiederholt sich das Bild nahtlos.
+    private static func cycle(_ c: Int, width: CGFloat) -> CGFloat {
+        (tileWidth(width) * 1.5 + 12) * CGFloat(columns[c].count)
+    }
+
+    /// Senkrechte Verschiebung einer Spalte `t` Sekunden nach dem Start, wie sie die Animation gerade zeigt.
     private func offset(_ c: Int, t: Double, width: CGFloat) -> CGFloat {
-        let pitch = Self.tileWidth(width) * 1.5 + 12
-        let total = pitch * CGFloat(Self.columns[c].count)
+        let total = Self.cycle(c, width: width)
         let shift = CGFloat((t * Self.speeds[c]).truncatingRemainder(dividingBy: Double(total)))
         return c == 1 ? -shift : shift - total
     }

@@ -16,6 +16,10 @@ struct GuideRoot: View {
             }
         }
         .animation(.smooth, value: store.onboarded)
+        .task(priority: .low) {
+            do { try await Task.sleep(for: .seconds(1.5)) } catch { return }
+            GuideCatalog.warmUp()
+        }
     }
 }
 
@@ -78,13 +82,26 @@ struct GuideList: Hashable {
     var films: [Film] { ids.compactMap(FilmIndex.film) }
 }
 
+/// Ziel einer Titelseite: nur die Kennung. Der ganze Film (mit Folgen, Trailern, Geschmacksfaktoren)
+/// müsste sonst bei jedem Navigieren gehasht und verglichen werden. Online-Titel sind über
+/// `FilmIndex.register` bekannt, sobald sie in einer Liste erscheinen.
+struct FilmRoute: Hashable {
+    let id: String
+}
+
 struct GuidePerson: Hashable {
     let name: String
 }
 
 extension View {
     func guideDestinations() -> some View {
-        navigationDestination(for: Film.self) { GuideDetailView(film: $0) }
+        navigationDestination(for: FilmRoute.self) { route in
+            if let film = FilmIndex.film(route.id) {
+                GuideDetailView(film: film)
+            } else {
+                ContentUnavailableView("Titel nicht gefunden", systemImage: "film")
+            }
+        }
             .navigationDestination(for: GuideList.self) { list in
                 ScrollView { GuideGrid(films: list.films).padding(.horizontal, 16).padding(.vertical, 12) }
                     .background(Theme.background)
@@ -102,7 +119,7 @@ struct GuideTile: View {
     var width: CGFloat? = nil
 
     var body: some View {
-        NavigationLink(value: film) {
+        NavigationLink(value: FilmRoute(id: film.id)) {
             VStack(alignment: .leading, spacing: 6) {
                 PosterView(film: film, cornerRadius: 12, size: .small)
                     .overlay(alignment: .topTrailing) {
@@ -354,7 +371,7 @@ struct GuideTodayCarousel: View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 14) {
                 ForEach(films) { film in
-                    NavigationLink(value: film) { card(film) }
+                    NavigationLink(value: FilmRoute(id: film.id)) { card(film) }
                         .buttonStyle(.plain)
                         .containerRelativeFrame(.horizontal) { width, _ in min(width * 0.78, 360) }
                         .scrollTransition(axis: .horizontal) { content, phase in
